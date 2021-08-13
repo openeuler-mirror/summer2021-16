@@ -20,14 +20,16 @@ SOURCES += \
     installthread.cpp \
     main.cpp \
     mainwindow.cpp \
-    dragdropfilearea.cpp
+    dragdropfilearea.cpp \
+    pkgdetaildialog.cpp
 
 # 所有的头文件
 HEADERS += \
     datastructs.h \
     installthread.h \
     mainwindow.h \
-    dragdropfilearea.h
+    dragdropfilearea.h \
+    pkgdetaildialog.h
 
 # UI 设计文件
 FORMS += \

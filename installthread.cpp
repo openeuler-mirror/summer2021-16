@@ -151,9 +151,9 @@ void InstallThread::parseJson(QString jsonStr)
 void InstallThread::installPackage()
 {
     for (int i=0; i<rpmArray.length(); i++) {
-
+        qDebug("=====TAG 1=====");
         if(willExit) break;
-
+        qDebug("=====TAG 2=====");
         installProcess = new QProcess();
         connect(installProcess, &QProcess::readyReadStandardOutput, this, &InstallThread::onReadData);
         installProcess->setProcessChannelMode(QProcess::MergedChannels);
@@ -194,6 +194,7 @@ void InstallThread::onReadData()
     }
 
     if(result.contains("Not authorized") || result.contains("Request dismissed")) {   // 只在确认认证失败的情况下才可以运行, 其他的仍然往后加log
+        qDebug("=====pkexec fail=====");
         willExit = true;
         emit onProcessErr();
     }

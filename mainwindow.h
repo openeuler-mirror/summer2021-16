@@ -10,6 +10,7 @@
 #include <QTextEdit>
 
 #include "datastructs.h"
+#include "installthread.h"
 
 namespace Ui {
 class MainWindow;
@@ -50,6 +51,8 @@ private:
 
     QVector<RPMInfoStruct> rpmArray;
 
+    InstallThread *installThread = nullptr;
+
 public slots:
     void dropFileHandler(QString filename);
 
@@ -62,6 +65,8 @@ public slots:
     void updateRPMArray(QVector<RPMInfoStruct> rpmArray);
 
     void exitOnFinished();
+
+    void showMoreInfoDialog();
 };
 
 #endif // MAINWINDOW_H

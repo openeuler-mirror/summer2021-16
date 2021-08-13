@@ -60,7 +60,7 @@ private:
 
     ThreadMode thMode;
     QProcess *installProcess = nullptr;
-    bool willExit;
+    bool willExit = false;
     QString lastLog;
 
     QVector<RPMInfoStruct> rpmArray;
