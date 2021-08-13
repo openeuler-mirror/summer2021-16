@@ -2,5 +2,6 @@
     <qresource prefix="/">
         <file>icon_install_light.svg</file>
         <file>split_line.svg</file>
+        <file>icon_install_light_resized.svg</file>
     </qresource>
 </RCC>

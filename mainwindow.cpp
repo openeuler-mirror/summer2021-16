@@ -2,6 +2,7 @@
 #include "ui_mainwindow.h"
 
 #include "dragdropfilearea.h"
+#include "installthread.h"
 
 #include <QDesktopWidget>
 #include <QVBoxLayout>
@@ -10,6 +11,9 @@
 #include <string>
 #include <QProcess>
 #include <QStringList>
+#include <QSvgRenderer>
+#include <QPainter>
+#include <QTextEdit>
 
 MainWindow::MainWindow(int argc, char **argv, QWidget *parent) :   // 直接通过构造器来搞
     QMainWindow(parent),
@@ -20,11 +24,11 @@ MainWindow::MainWindow(int argc, char **argv, QWidget *parent) :   // 直接通�
 
     // 下面两行让窗口创建在屏幕正中间
     QDesktopWidget *desktop = QApplication::desktop();
+    setFixedSize(550,350);
     move((desktop->width()-this->width())/2,(desktop->height()-this->height())/2);
 
-    setFixedSize(600,300);
-
     delete ui->mainToolBar;         // 不需要 toolbar ，删掉
+    delete ui->statusBar;
 
     this->setArgc(argc);
     this->getArgc();
@@ -37,10 +41,18 @@ MainWindow::MainWindow(int argc, char **argv, QWidget *parent) :   // 直接通�
         QVBoxLayout *mainLayout = new QVBoxLayout;      // 定义 QVBoxLayout
         mainContentWid->setLayout(mainLayout);          // 设置布局
 
-        QPixmap pixmap;                                 // 多种格式的图片都可以存为 pixmap
-        pixmap.load(":/icon_install_light.svg");        // 对 resources 中的引用【:/prefix/filename】
+        QPixmap *pixmap = new QPixmap();                // 多种格式的图片都可以存为 pixmap
+
+        QSvgRenderer svgRender(QString(":/icon_install_light_resized.svg"));   // 使用 painter 和 renderer
+        QImage image(200, 200, QImage::Format_ARGB32);
+        image.fill(0x00FFFFFF);
+        QPainter painter(&image);
+        svgRender.render(&painter);
+
+        pixmap->convertFromImage(image);
+
         DragDropFileArea *installIconLabel = new DragDropFileArea();
-        installIconLabel->setPixmap(pixmap);
+        installIconLabel->setPixmap(*pixmap);
         connect(installIconLabel, &DragDropFileArea::fileDropped, this, &MainWindow::dropFileHandler);
 
         QPixmap splitLinePixmap;
@@ -55,18 +67,18 @@ MainWindow::MainWindow(int argc, char **argv, QWidget *parent) :   // 直接通�
         QPushButton *buttonSelectRPM = new QPushButton("选择 rpm 包文件");
         buttonSelectRPM->setStyleSheet("QPushButton{color:#0099FF; background-color:transparent; font-size:12px}");
         buttonSelectRPM->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
-        buttonSelectRPM->setMinimumWidth(200);
-        buttonSelectRPM->setMaximumWidth(200);
+        buttonSelectRPM->setFixedWidth(200);
 
         // 通过这种方式，把按钮的事件（clicked）和处理函数“连接”起来
         connect(buttonSelectRPM, &QPushButton::clicked, this, &MainWindow::selectRpmBtnHandler);
 
-        mainLayout->addWidget(installIconLabel, 0, Qt::AlignCenter);            // 嗯，原来如此
+        mainLayout->addWidget(installIconLabel, 0, Qt::AlignCenter);
         mainLayout->addWidget(dropHereText, 0, Qt::AlignCenter);
-        mainLayout->addSpacing(10);
+        mainLayout->addSpacing(15);
         mainLayout->addWidget(splitLine, 0, Qt::AlignCenter);
-        mainLayout->addSpacing(10);
+        mainLayout->addSpacing(15);
         mainLayout->addWidget(buttonSelectRPM, 0, Qt::AlignCenter);
+        mainLayout->addStretch();
 
         this->setCentralWidget(mainContentWid);
 
@@ -86,8 +98,8 @@ MainWindow::MainWindow(int argc, char **argv, QWidget *parent) :   // 直接通�
         installIconLabel->setPixmap(pixmap);
 
         QLabel *rpmInfoText = new QLabel();
-        // TODO: 做一个单独的函数来取信息
-        rpmInfoText->setText(this->getRPMSummary());
+        // TODO: 做一个单独的函数来取信息, 暂不支持该功能
+        // rpmInfoText->setText(this->getRPMSummary());
         rpmInfoText->setStyleSheet("QLabel{font-size:12px}");
         rpmInfoText->setMinimumWidth(330);
         rpmInfoText->setMaximumWidth(380);
@@ -145,11 +157,13 @@ std::string MainWindow::selectRpmBtnHandler()
 {
     std::string res = "";
     QString fileName = QFileDialog::getOpenFileName(nullptr, "打开文件", QDir::homePath(), "*.rpm");
-    qDebug("%s", fileName.toStdString().c_str());
     bool isSelectSuccess = true;
+    if(fileName.isEmpty()) {
+        isSelectSuccess = false;
+    }
     if(isSelectSuccess) {   // 选择成功的情况
         this->setArgPath(fileName.toStdString());
-        this->changeUIAfterRPMSelect();
+        loadRpmInfo();      // 开始加载信息，显示加载中界面
     } else {
         // 这里留给没选择 RPM 包的情况
     }
@@ -167,26 +181,62 @@ void MainWindow::sendNotify()
     qDebug("%s", qPrintable(res));
 }
 
-bool MainWindow::installRPM()
+void MainWindow::installRPM()
 {
-    bool isSuccess = false;
-    // TODO : 把这玩意换成真的安装了
-    QProcess process;
-    process.start("pkexec", QStringList() << "yum" <<"-y" <<"localinstall"<< QString(this->argPath.c_str()));
-    process.waitForFinished();
-    std::string res = process.readAllStandardOutput().toStdString();  // 中文安装完成，最后会输出“完毕！”，英文安装完成会输出“Complete!”
-    qDebug("%s", qPrintable(QString().fromStdString(res)));
-    if(res.find_last_of("Complete!")!=std::string::npos||res.find_last_of("完毕！")!=std::string::npos) {
-        isSuccess = true;
-        process.setReadChannel(QProcess::StandardOutput);
-        process.start("notify-send", QStringList() << "安装完成！");
-        process.waitForFinished();
-        return isSuccess;
-    } else {
-        process.start("notify-send", QStringList() << "安装失败！");
-        process.waitForFinished();
-        return isSuccess;
-    }
+    QWidget *installingWid = new QWidget();
+    QVBoxLayout *mainLayout = new QVBoxLayout;
+    installingWid->setLayout(mainLayout);
+    QLabel *installingText = new QLabel("安装中，日志如下");
+
+    textArea = new QTextEdit();
+    textArea->setReadOnly(true);
+    textArea->setFixedWidth(450);
+
+    mainLayout->addStretch();
+    mainLayout->addWidget(installingText, 0, Qt::AlignCenter);
+    mainLayout->addSpacing(15);
+    mainLayout->addWidget(textArea, 0, Qt::AlignCenter);
+    mainLayout->addStretch();
+
+    setCentralWidget(installingWid);
+
+    InstallThread *installThread = new InstallThread(ThreadMode::installPackage, rpmArray);
+    connect(installThread, &InstallThread::appendLog, this, &MainWindow::appendLog);
+    connect(installThread, &InstallThread::updatePkgInfo, this, &MainWindow::updateRPMArray);
+    connect(installThread, &InstallThread::installFinish, this, &MainWindow::onInstallFinish);
+    installThread->start();
+}
+
+void MainWindow::updateRPMArray(QVector<RPMInfoStruct> rpmArray)
+{
+    this->rpmArray = rpmArray;
+}
+
+void MainWindow::onInstallFinish()
+{
+    QWidget *installedWid = new QWidget();
+    QVBoxLayout *mainLayout = new QVBoxLayout;
+    installedWid->setLayout(mainLayout);
+    QLabel *installedText = new QLabel(rpmArray[0].actionNotify);
+    QPushButton *finishBtn = new QPushButton("完成");
+    finishBtn->setFixedWidth(200);
+    connect(finishBtn, &QPushButton::clicked, this, &MainWindow::exitOnFinished);
+
+    mainLayout->addStretch();
+    mainLayout->addWidget(installedText, 0, Qt::AlignCenter);
+    mainLayout->addSpacing(15);
+    mainLayout->addWidget(textArea, 0, Qt::AlignCenter);
+    mainLayout->addSpacing(15);
+    mainLayout->addWidget(finishBtn, 0, Qt::AlignCenter);
+    mainLayout->addStretch();
+    setCentralWidget(installedWid);
+}
+
+void MainWindow::appendLog(QString log)
+{
+    if(log.isEmpty()) return;
+    textArea->append(log);
+    textArea->moveCursor(QTextCursor::End);
 }
 
 QString MainWindow::getRPMSummary()
@@ -216,9 +266,31 @@ QString MainWindow::getRPMSummary()
     return summary;
 }
 
-bool MainWindow::changeUIAfterRPMSelect()
+void MainWindow::loadRpmInfo()
 {
-    bool status = true;
+    QWidget *loadingWid = new QWidget();
+    QVBoxLayout *mainLayout = new QVBoxLayout;
+    loadingWid->setLayout(mainLayout);
+    QLabel *loadingLabel = new QLabel("加载中，请稍候");
+    mainLayout->addStretch();
+    mainLayout->addWidget(loadingLabel, 0, Qt::AlignCenter);
+    mainLayout->addStretch();
+
+    setCentralWidget(loadingWid);
+
+    RPMInfoStruct tmp;
+    tmp.dir = QString::fromStdString(argPath);
+    rpmArray.push_back(tmp);
+
+    InstallThread *installThread = new InstallThread(ThreadMode::getInfo, rpmArray);
+    installThread->start();
+    connect(installThread, &InstallThread::multiPkgInfo, this, &MainWindow::onRPMInfoLoaded);
+
+}
+
+void MainWindow::onRPMInfoLoaded(QVector<RPMInfoStruct> rpmArray) {
+    this->rpmArray = rpmArray;
+
     QWidget *mainContentWid = new QWidget;          // MainWindow 中的 Content，其实是个装 QVBoxLayout 的容器
     QVBoxLayout *mainLayout = new QVBoxLayout;      // 定义 QVBoxLayout
     mainContentWid->setLayout(mainLayout);          // 设置布局
@@ -229,33 +301,42 @@ bool MainWindow::changeUIAfterRPMSelect()
     installIconLabel->setPixmap(pixmap);
 
     QLabel *rpmInfoText = new QLabel();
-    // TODO: 做一个单独的函数来取信息
-    rpmInfoText->setText(this->getRPMSummary());
+    rpmInfoText->setText(this->rpmArray[0].summary);
     rpmInfoText->setStyleSheet("QLabel{font-size:12px}");
-    rpmInfoText->setMinimumWidth(330);
-    rpmInfoText->setMaximumWidth(380);
+    rpmInfoText->setFixedWidth(400);
     rpmInfoText->setWordWrap(true);
 
-    QPushButton *buttonInstallRPM = new QPushButton("确认安装");
+    QPushButton *buttonInstallRPM = new QPushButton();
     buttonInstallRPM->setStyleSheet("QPushButton{color:#0099FF; background-color:transparent; font-size:12px}");
-    buttonInstallRPM->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
-    buttonInstallRPM->setMinimumWidth(200);
-    buttonInstallRPM->setMaximumWidth(200);
-
-    connect(buttonInstallRPM, &QPushButton::clicked, this, &MainWindow::installRPM);
-
-    mainLayout->addWidget(installIconLabel, 0, Qt::AlignCenter);
-    mainLayout->addWidget(rpmInfoText, 0, Qt::AlignCenter);
-    mainLayout->addSpacing(10);
-    mainLayout->addWidget(buttonInstallRPM, 0, Qt::AlignCenter);
+    buttonInstallRPM->setFixedWidth(200);
+    if(rpmArray[0].status==readyToInstall) {
+        buttonInstallRPM->setText("开始安装");
+        connect(buttonInstallRPM, &QPushButton::clicked, this, &MainWindow::installRPM);
+        mainLayout->addWidget(installIconLabel, 0, Qt::AlignCenter);
+        mainLayout->addWidget(rpmInfoText, 0, Qt::AlignCenter);
+        mainLayout->addWidget(buttonInstallRPM, 0, Qt::AlignCenter);
+    } else {
+        QLabel *cannotInstallDescription = new QLabel(this->rpmArray[0].statusDescription+"   "+this->rpmArray[0].actionNotify);
+        buttonInstallRPM->setText("完成");
+        connect(buttonInstallRPM, &QPushButton::clicked, this, &MainWindow::exitOnFinished);
+        mainLayout->addWidget(installIconLabel, 0, Qt::AlignCenter);
+        mainLayout->addWidget(rpmInfoText, 0, Qt::AlignCenter);
+        mainLayout->addWidget(cannotInstallDescription, 0, Qt::AlignCenter);
+        mainLayout->addWidget(buttonInstallRPM, 0, Qt::AlignCenter);
+    }
 
     this->setCentralWidget(mainContentWid);
-    return status;
+
 }
 
 void MainWindow::dropFileHandler(QString filename)
 {
     qDebug("%s", qPrintable(filename));
     this->setArgPath(filename.toStdString());
-    this->changeUIAfterRPMSelect();
+    // this->changeUIAfterRPMSelect();
+}
+
+void MainWindow::exitOnFinished()
+{
+    QApplication::quit();
 }

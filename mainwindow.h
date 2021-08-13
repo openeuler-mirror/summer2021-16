@@ -6,6 +6,10 @@
 #include <iostream>
 #include <string>
 #include <QString>
+#include <QVector>
+#include <QTextEdit>
+
+#include "datastructs.h"
 
 namespace Ui {
 class MainWindow;
@@ -30,10 +34,11 @@ public:
     void callShell();
     void sendNotify();
 
-    bool installRPM();
-    bool changeUIAfterRPMSelect();
+    void installRPM();
 
     QString getRPMSummary();
+
+    void loadRpmInfo();
 
 private:
     Ui::MainWindow *ui;
@@ -41,8 +46,22 @@ private:
     int argCount;
     std::string argPath;
 
+    QTextEdit *textArea;
+
+    QVector<RPMInfoStruct> rpmArray;
+
 public slots:
     void dropFileHandler(QString filename);
+
+    void onRPMInfoLoaded(QVector<RPMInfoStruct> rpmArray);
+
+    void appendLog(QString log);
+
+    void onInstallFinish();
+
+    void updateRPMArray(QVector<RPMInfoStruct> rpmArray);
+
+    void exitOnFinished();
 };
 
 #endif // MAINWINDOW_H
