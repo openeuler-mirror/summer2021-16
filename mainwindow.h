@@ -53,6 +53,19 @@ private:
 
     InstallThread *installThread = nullptr;
 
+
+    QString headerStyle(QString content);
+
+    QString subHeaderStyle(QString content);
+
+    QString marginStyle(QString content);
+
+    QString docblockStyle(QString content);
+
+    QString styledList(QVector<QString> list);
+
+
+
 public slots:
     void dropFileHandler(QString filename);
 

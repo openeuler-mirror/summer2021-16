@@ -15,6 +15,7 @@
 #include <QSvgRenderer>
 #include <QPainter>
 #include <QTextEdit>
+#include <QScrollArea>
 
 MainWindow::MainWindow(int argc, char **argv, QWidget *parent) :   // 直接通过构造器来搞
     QMainWindow(parent),
@@ -22,6 +23,7 @@ MainWindow::MainWindow(int argc, char **argv, QWidget *parent) :   // 直接通�
 {
     ui->setupUi(this);
     setWindowTitle("RPM 安装器");
+    setWindowIcon(QPixmap(":/box-seam.png"));
 
     // 下面两行让窗口创建在屏幕正中间
     QDesktopWidget *desktop = QApplication::desktop();
@@ -35,7 +37,6 @@ MainWindow::MainWindow(int argc, char **argv, QWidget *parent) :   // 直接通�
     this->getArgc();
     if(argc==1) {
         // 没有启动参数输入，应该是啥也不干. 选择文件安装的界面应该在这里面绘制
-        // TODO: 把这玩意抽出去，单独封装一下
         QWidget *mainContentWid = new QWidget;          // MainWindow 中的 Content，其实是个装 QVBoxLayout 的容器
                                                         // 这玩意的正确用法，或许应该是单拿出去做个类，和 main 拆开
 
@@ -160,8 +161,8 @@ void MainWindow::installRPM()
 
     textArea = new QTextEdit();
     textArea->setReadOnly(true);
-    textArea->setFixedWidth(500);
-    textArea->setFixedHeight(230);
+    textArea->setFixedWidth(780);
+    textArea->setFixedHeight(420);
 
     mainLayout->addStretch();
     mainLayout->addWidget(installingText, 0, Qt::AlignCenter);
@@ -228,7 +229,6 @@ QString MainWindow::getRPMSummary()
     rpmInfoStr = rpmInfoStr.substr(rpmInfoStr.find(": ")+2);
     std::string::iterator infoEnd = rpmInfoStr.end();
 
-    // 解决可能存在的，Summary 长度超过一行的情况（应该不会出现吧
     for(std::string::iterator iter=rpmInfoStr.begin(); iter!=infoEnd; iter++) {
         if(*iter=='\n') *iter=' ';
     }
@@ -268,9 +268,15 @@ void MainWindow::onRPMInfoLoaded(QVector<RPMInfoStruct> rpmArray) {
 
     this->rpmArray = rpmArray;
 
+    // 调整窗口尺寸，适配新的横版 UI
+    QDesktopWidget *desktop = QApplication::desktop();
+    setFixedSize(800,550);
+    move((desktop->width()-this->width())/2,(desktop->height()-this->height())/2);
+
     QWidget *mainContentWid = new QWidget;          // MainWindow 中的 Content，其实是个装 QVBoxLayout 的容器
-    QVBoxLayout *mainLayout = new QVBoxLayout;      // 定义 QVBoxLayout
+    QHBoxLayout *mainLayout = new QHBoxLayout();      // 定义 QVBoxLayout
     mainContentWid->setLayout(mainLayout);          // 设置布局
+    mainLayout->setMargin(0);
 
     QPixmap pixmap;
 
@@ -283,33 +289,24 @@ void MainWindow::onRPMInfoLoaded(QVector<RPMInfoStruct> rpmArray) {
     pixmap.convertFromImage(image);
 
     QLabel *installIconLabel = new QLabel();
-    installIconLabel->setFixedSize(QSize(120, 120));
+    installIconLabel->setFixedSize(QSize(120, 100));
     installIconLabel->setPixmap(pixmap);
 
-    QLabel *titleText = new QLabel();
-    titleText->setText(this->rpmArray[0].name);
-    titleText->setFixedWidth(400);
+    QWidget *leftFrame = new QWidget();
+    leftFrame->setFixedWidth(300);
+    QVBoxLayout *leftFrameLayout = new QVBoxLayout(leftFrame);
 
-    QLabel *rpmInfoText = new QLabel();
-    rpmInfoText->setText(this->rpmArray[0].summary);
-    rpmInfoText->setStyleSheet("QLabel{font-size:12px}");
-    rpmInfoText->setFixedWidth(400);
-    rpmInfoText->setWordWrap(true);
+    QLabel *titleText = new QLabel();
+    titleText->setText(subHeaderStyle(this->rpmArray[0].name));
+
+    leftFrameLayout->addStretch(1);
+    leftFrameLayout->addWidget(installIconLabel, 0, Qt::AlignCenter);
+    leftFrameLayout->addSpacing(20);
+    leftFrameLayout->addWidget(titleText, 0, Qt::AlignCenter);
+    leftFrameLayout->addSpacing(40);
 
     QPushButton *buttonInstallRPM = new QPushButton();
     buttonInstallRPM->setFixedWidth(200);
-
-    QPushButton *pkgDetailBtn = new QPushButton();
-    pkgDetailBtn->setText("查看详细信息");
-    pkgDetailBtn->setFixedWidth(150);
-    pkgDetailBtn->setStyleSheet("QPushButton{color:#0099FF; background-color:transparent; padding:0px; border; focus{border:none; outline: none;}}");
-    connect(pkgDetailBtn, &QPushButton::clicked, this, &MainWindow::showMoreInfoDialog);
-    mainLayout->addWidget(installIconLabel, 0, Qt::AlignCenter);
-    mainLayout->addWidget(titleText, 0, Qt::AlignCenter);
-    mainLayout->addWidget(rpmInfoText, 0, Qt::AlignCenter);
-    mainLayout->addStretch();
-    mainLayout->addWidget(pkgDetailBtn, 0, Qt::AlignCenter);
-
     if(rpmArray[0].status==readyToInstall) {
         buttonInstallRPM->setText("开始安装");
         connect(buttonInstallRPM, &QPushButton::clicked, this, &MainWindow::installRPM);
@@ -318,15 +315,108 @@ void MainWindow::onRPMInfoLoaded(QVector<RPMInfoStruct> rpmArray) {
         cannotInstallDescription->setStyleSheet("QLabel{font-size:16px; color: green}");
         buttonInstallRPM->setText("完成");
         connect(buttonInstallRPM, &QPushButton::clicked, this, &MainWindow::exitOnFinished);
-        mainLayout->addStretch();
-        mainLayout->addWidget(cannotInstallDescription, 0, Qt::AlignCenter);
+        leftFrameLayout->addWidget(cannotInstallDescription, 0, Qt::AlignCenter);
     }
-    mainLayout->addStretch();
-    mainLayout->addWidget(buttonInstallRPM, 0, Qt::AlignCenter);
-    mainLayout->addStretch();
+
+    leftFrameLayout->addWidget(buttonInstallRPM, 0, Qt::AlignCenter);
+    leftFrameLayout->addStretch(3);
+
+
+    QWidget *detailFrame = new QWidget();
+
+    QVBoxLayout *detailLayout = new QVBoxLayout(detailFrame);
+    detailFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    QLabel *archLabel = new QLabel(subHeaderStyle("架构"));
+    QLabel *arch = new QLabel(marginStyle(rpmArray[0].arch));
+    QLabel *licenseLabel = new QLabel(subHeaderStyle("开源协议"));
+    QLabel *license = new QLabel(marginStyle(rpmArray[0].license));
+    QLabel *summaryLabel = new QLabel(subHeaderStyle("简介"));
+    QLabel *summary = new QLabel(marginStyle(rpmArray[0].summary));
+    summary->setWordWrap(true);
+    QLabel *descriptionLabel = new QLabel(subHeaderStyle("描述"));
+    QLabel *description = new QLabel(marginStyle(rpmArray[0].description));
+    description->setWordWrap(true);
+    QLabel *versionReleaseLabel = new QLabel(subHeaderStyle("版本"));
+    QLabel *versionRelease = new QLabel(marginStyle(rpmArray[0].versionRelease));
+    QLabel *requiresLabel = new QLabel(subHeaderStyle("Requires"));
+    QLabel *requiresList = new QLabel(styledList(rpmArray[0].pkgRequires));
+    QScrollArea *requiresScrollArea = new QScrollArea();
+    requiresScrollArea->setWidget(requiresList);
+    QLabel *ProvidesLabel = new QLabel(subHeaderStyle("Requires"));
+    QLabel *ProvidesList = new QLabel(styledList(rpmArray[0].pkgProvides));
+    QScrollArea *providesScrollArea = new QScrollArea();
+    providesScrollArea->setWidget(ProvidesList);
+
+
+
+    detailLayout->addWidget(archLabel);
+    detailLayout->addWidget(arch);
+    detailLayout->addWidget(licenseLabel);
+    detailLayout->addWidget(license);
+    detailLayout->addWidget(summaryLabel);
+    detailLayout->addWidget(summary);
+    detailLayout->addWidget(descriptionLabel);
+    detailLayout->addWidget(description);
+    detailLayout->addWidget(versionReleaseLabel);
+    detailLayout->addWidget(versionRelease);
+    detailLayout->addWidget(requiresLabel);
+    detailLayout->addWidget(requiresScrollArea, 1);
+    detailLayout->addWidget(ProvidesLabel);
+    detailLayout->addWidget(providesScrollArea, 1);
+    detailLayout->addStretch();
+
+
+    mainLayout->addWidget(leftFrame);
+    mainLayout->addWidget(detailFrame);
+
+
     this->setCentralWidget(mainContentWid);
 
 }
+
+QString MainWindow::headerStyle(QString content)
+{
+    content = "<div style='font-size: xx-large; font-weight: bold'>"
+            + content
+            + "</div><hr>";
+    return content;
+}
+
+QString MainWindow::subHeaderStyle(QString content)
+{
+    content = "<div style='font-weight: bold'>"
+            + content
+            + "</div>";
+    return content;
+}
+
+QString MainWindow::marginStyle(QString content)
+{
+    QString ret;
+    ret = "<div style='margin-left: 20'>";
+    ret += content;
+    ret += "</div>";
+    return ret;
+}
+
+QString MainWindow::docblockStyle(QString content)
+{
+    QString ret = "<div style='margin-left: 20'><div style='border: 1px solid #ffffff; border-radius:3px'>";
+    ret += content;
+    ret += "</div></div>";
+    return ret;
+}
+
+QString MainWindow::styledList(QVector<QString> list)
+{
+    QString ret = "<div style='margin-left: 20'><div style='border: 1px solid #a1a1a1; border-radius:3px'>";
+    for(int i=0; i<list.size(); i++) {
+        ret += "<div>" + list[i] + "</div>";
+    }
+    ret += "</div></div>";
+    return ret;
+}
+
 
 void MainWindow::showMoreInfoDialog()
 {
